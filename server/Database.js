@@ -175,7 +175,13 @@ class Database {
    * @returns {boolean}
    */
   async connect() {
-    Logger.info(`[Database] Initializing db at "${this.dbPath}"`)
+    let dbPath;
+    if (process.env.DB_DIALECT === "sqlite") {
+      dbPath = this.dbPath
+    } else {
+      dbPath = `${process.env.DBUSER || 'audiobookshelf'}:************@${process.env.PGHOST || 'localhost'}:${process.env.PGPORT || '5432'}/${process.env.PGDATABASE || 'audiobookshelf'}?sslmode=${process.env.PGSSLMODE || 'prefer'}`;
+    }
+    Logger.info(`[Database] Initializing db at "${dbPath}"`)
 
     let logging = false
     let benchmark = false
@@ -190,13 +196,37 @@ class Database {
       benchmark = true
     }
 
-    this.sequelize = new Sequelize({
-      dialect: 'sqlite',
-      storage: this.dbPath,
-      logging: logging,
-      benchmark: benchmark,
-      transactionType: 'IMMEDIATE'
-    })
+    switch(process.env.DB_DIALECT) {
+      case 'sqlite':
+        this.sequelize = new Sequelize({
+          dialect: 'sqlite',
+          storage: this.dbPath,
+          logging: logging,
+          benchmark: benchmark,
+          transactionType: 'IMMEDIATE'
+        })
+        break
+      case 'postgres':
+        this.sequelize = new Sequelize({
+          dialect: 'postgres',
+          host: process.env.PGHOST || 'localhost',
+          port: process.env.PGPORT || '5432',
+          username: process.env.PGUSER || 'audiobookshelf',
+          password: process.env.PGPASSWORD,
+          database: process.env.PGDATABASE || 'audiobookshelf',
+          dialectOptions: {
+            ssl: {
+              require: process.env.PGREQUIRESSL === "true" ? true : false,
+            }
+          },
+          logging: logging,
+          benchmark: benchmark,
+          transactionType: 'IMMEDIATE'
+        })
+        break
+      default:
+        Logger.error(`[Database] cannot connect to database ${process.env.DB_DIALECT} only [sqlite, postgres] are supported`)
+    }
 
     // Helper function
     this.sequelize.uppercaseFirst = str => str ? `${str[0].toUpperCase()}${str.substr(1)}` : ''
@@ -215,7 +245,7 @@ class Database {
    * Disconnect from db
    */
   async disconnect() {
-    Logger.info(`[Database] Disconnecting sqlite db`)
+    Logger.info(`[Database] Disconnecting from db`)
     await this.sequelize.close()
     this.sequelize = null
   }
@@ -224,7 +254,7 @@ class Database {
    * Reconnect to db and init
    */
   async reconnect() {
-    Logger.info(`[Database] Reconnecting sqlite db`)
+    Logger.info(`[Database] Reconnecting to db`)
     await this.init()
   }
 
@@ -257,8 +287,8 @@ class Database {
 
   /**
    * Compare two server versions
-   * @param {string} v1 
-   * @param {string} v2 
+   * @param {string} v1
+   * @param {string} v2
    * @returns {-1|0|1} 1 if v1 > v2
    */
   compareVersions(v1, v2) {
